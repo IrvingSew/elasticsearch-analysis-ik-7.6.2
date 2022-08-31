@@ -1,8 +1,11 @@
 package org.wltea.analyzer.dic;
 
+import com.alibaba.druid.pool.DruidDataSource;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.SpecialPermission;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.wltea.analyzer.help.ESPluginLoggerFactory;
+import org.wltea.analyzer.util.JDBCUtils;
 
 import java.security.AccessController;
 import java.security.PrivilegedAction;
@@ -28,6 +31,12 @@ public class DatabaseMonitor implements Runnable {
     private static Timestamp lastUpdateTimeOfMainDic = null;
     private static Timestamp lastUpdateTimeOfStopword = null;
 
+    private static DruidDataSource dataSource;
+    private static final int maxActive = 5;
+    private static final int initialSize = 1;
+    private static final int maxWait = 6000;
+    private static final int minIdle = 2;
+
     public String getUrl() {
         return Dictionary.getSingleton().getProperty(JDBC_URL);
     }
@@ -51,6 +60,19 @@ public class DatabaseMonitor implements Runnable {
      * 加载MySQL驱动
      */
     public DatabaseMonitor() {
+        DruidDataSource dataSource= new DruidDataSource();
+        dataSource.setUrl(getUrl());
+        dataSource.setDriverClassName(getDriver());
+        dataSource.setUsername(getUsername());
+        dataSource.setPassword(getPassword());
+        dataSource.setMaxActive(maxActive);
+        dataSource.setInitialSize(initialSize);
+        dataSource.setMaxWait(maxWait);
+        dataSource.setMinIdle(minIdle);
+        dataSource.setConnectionErrorRetryAttempts(5);
+        dataSource.setBreakAfterAcquireFailure(true);
+        this.dataSource = dataSource;
+
         SpecialPermission.check();
         AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
             try {
@@ -68,7 +90,8 @@ public class DatabaseMonitor implements Runnable {
         AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
             Connection conn = null;
             try {
-                conn = DriverManager.getConnection(getUrl(), getUsername(), getPassword());
+//                conn = DriverManager.getConnection(getUrl(), getUsername(), getPassword());
+                conn = dataSource.getConnection();
                 // 更新主词典
                 updateMainDic(conn);
                 // 更新停用词
