@@ -195,6 +195,7 @@ public class Dictionary {
 		if (singleton == null) {
 			synchronized (Dictionary.class) {
 				if (singleton == null) {
+					logger.info("---------- Dictionary initial start ---------");
 
 					singleton = new Dictionary(cfg);
 					singleton.loadMainDict();

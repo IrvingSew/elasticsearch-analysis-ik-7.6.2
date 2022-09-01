@@ -32,21 +32,35 @@ public class DatabaseMonitor implements Runnable {
     private static Timestamp lastUpdateTimeOfStopword = null;
 
     private static DruidDataSource dataSource;
-    private static final int maxActive = 5;
+    private static final int maxActive = 10;
     private static final int initialSize = 1;
     private static final int maxWait = 6000;
     private static final int minIdle = 2;
 
-    public String getUrl() {
+    static {
+        dataSource= new DruidDataSource();
+        dataSource.setUrl(getUrl());
+        dataSource.setDriverClassName(getDriver());
+        dataSource.setUsername(getUsername());
+        dataSource.setPassword(getPassword());
+        dataSource.setMaxActive(maxActive);
+        dataSource.setInitialSize(initialSize);
+        dataSource.setMaxWait(maxWait);
+        dataSource.setMinIdle(minIdle);
+        dataSource.setConnectionErrorRetryAttempts(5);
+        dataSource.setBreakAfterAcquireFailure(true);
+    }
+
+    public static String getUrl() {
         return Dictionary.getSingleton().getProperty(JDBC_URL);
     }
-    public String getUsername() {
+    public static String getUsername() {
         return Dictionary.getSingleton().getProperty(JDBC_USERNAME);
     }
-    public String getPassword() {
+    public static String getPassword() {
         return Dictionary.getSingleton().getProperty(JDBC_PASSWORD);
     }
-    public String getDriver() {
+    public static String getDriver() {
         return Dictionary.getSingleton().getProperty(JDBC_DRIVER);
     }
     public String getUpdateMainDicSql() {
@@ -60,19 +74,7 @@ public class DatabaseMonitor implements Runnable {
      * 加载MySQL驱动
      */
     public DatabaseMonitor() {
-        DruidDataSource dataSource= new DruidDataSource();
-        dataSource.setUrl(getUrl());
-        dataSource.setDriverClassName(getDriver());
-        dataSource.setUsername(getUsername());
-        dataSource.setPassword(getPassword());
-        dataSource.setMaxActive(maxActive);
-        dataSource.setInitialSize(initialSize);
-        dataSource.setMaxWait(maxWait);
-        dataSource.setMinIdle(minIdle);
-        dataSource.setConnectionErrorRetryAttempts(5);
-        dataSource.setBreakAfterAcquireFailure(true);
-        this.dataSource = dataSource;
-
+        logger.info("---------- DatabaseMonitor struct start ---------");
         SpecialPermission.check();
         AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
             try {
@@ -88,39 +90,42 @@ public class DatabaseMonitor implements Runnable {
     public void run() {
         SpecialPermission.check();
         AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
-            Connection conn = null;
+//            Connection conn = null;
             try {
 //                conn = DriverManager.getConnection(getUrl(), getUsername(), getPassword());
-                conn = dataSource.getConnection();
+                //conn = dataSource.getConnection();
                 // 更新主词典
-                updateMainDic(conn);
+                updateMainDic();
                 // 更新停用词
-                updateStopword(conn);
+                updateStopword();
             }catch (Exception e ){
                 logger.error("failed to get connection", e);
             }finally {
-                if (conn != null) {
-                    try {
-                        conn.close();
-                    } catch (SQLException e) {
-                        logger.error("failed to close Connection", e);
-                    }
-                }
+//                if (conn != null) {
+//                    try {
+//                        conn.close();
+//                    } catch (SQLException e) {
+//                        logger.error("failed to close Connection", e);
+//                    }
+//                }
             }
             return null;
         });
     }
 
+
     /**
      * 主词典
      */
-    public synchronized void updateMainDic(Connection conn) {
+    public synchronized void updateMainDic() {
+        Connection conn = null;
         logger.info("start update main dic");
         int numberOfAddWords = 0;
         int numberOfDisableWords = 0;
         PreparedStatement ps = null;
         ResultSet rs = null;
         try {
+            conn = dataSource.getConnection();
             String sql = getUpdateMainDicSql();
             Timestamp param = lastUpdateTimeOfMainDic == null ? DEFAULT_LAST_UPDATE : lastUpdateTimeOfMainDic;
             logger.info("param: " + param);
@@ -150,20 +155,23 @@ public class DatabaseMonitor implements Runnable {
         } catch (SQLException e) {
             logger.error("failed to update main_dic", e);
             // 关闭 ResultSet、PreparedStatement
-            closeRsAndPs(rs, ps);
+        }finally {
+            closeRsAndPs(rs, ps,conn);
         }
     }
 
     /**
      * 停用词
      */
-    public synchronized void updateStopword(Connection conn) {
+    public synchronized void updateStopword() {
+        Connection conn = null;
         logger.info("start update stopword");
         int numberOfAddWords = 0;
         int numberOfDisableWords = 0;
         PreparedStatement ps = null;
         ResultSet rs = null;
         try {
+            conn = dataSource.getConnection();
             String sql = getUpdateStopWordSql();
             Timestamp param = lastUpdateTimeOfStopword == null ? DEFAULT_LAST_UPDATE : lastUpdateTimeOfStopword;
             logger.info("param: " + param);
@@ -194,11 +202,11 @@ public class DatabaseMonitor implements Runnable {
             logger.error("failed to update main_dic", e);
         } finally {
             // 关闭 ResultSet、PreparedStatement
-            closeRsAndPs(rs, ps);
+            closeRsAndPs(rs, ps,conn);
         }
     }
 
-    public void closeRsAndPs(ResultSet rs, PreparedStatement ps) {
+    public void closeRsAndPs(ResultSet rs, PreparedStatement ps,Connection conn) {
         if (rs != null) {
             try {
                 rs.close();
@@ -211,6 +219,13 @@ public class DatabaseMonitor implements Runnable {
                 ps.close();
             } catch (SQLException e) {
                 logger.error("failed to close PreparedStatement", e);
+            }
+        }
+        if (conn != null) {
+            try {
+                conn.close();
+            } catch (SQLException e) {
+                logger.error("failed to close Connection", e);
             }
         }
     }
